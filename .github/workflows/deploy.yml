@@ -1,4 +1,4 @@
-name: CI/CD - Build, Push, Deploy
+
 
 on:
   push:
@@ -6,7 +6,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/backend
 
 jobs:
   build-push-deploy:
@@ -18,6 +17,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      # GHCR (and Docker registries generally) require lowercase repository
+      # paths. github.repository preserves the account's actual casing
+      # (e.g. "Aishyayyy/devops-assessment"), which breaks the image tag.
+      # Compute a lowercase version once and reuse it everywhere below.
+      - name: Compute lowercase image name
+        run: echo "IMAGE_NAME=$(echo '${{ github.repository }}/backend' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
       # ---------- BUILD & PUSH ----------
       - name: Log in to GitHub Container Registry
