@@ -1,0 +1,85 @@
+name: CI/CD - Build, Push, Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/backend
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # needed to push to GHCR
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ---------- BUILD & PUSH ----------
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./app
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      # ---------- DEPLOY TO A FRESH KIND CLUSTER (simulates real cluster deploy) ----------
+      - name: Create kind cluster
+        uses: helm/kind-action@v1.10.0
+        with:
+          cluster_name: ci-cluster
+
+      - name: Apply namespace, config, secrets
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/configmap.yaml
+          kubectl apply -f k8s/secret.yaml
+
+      - name: Create image pull secret for GHCR
+        run: |
+          kubectl create secret docker-registry ghcr-pull-secret \
+            --docker-server=${{ env.REGISTRY }} \
+            --docker-username=${{ github.actor }} \
+            --docker-password=${{ secrets.GITHUB_TOKEN }} \
+            -n devops-assessment
+
+      - name: Deploy Postgres
+        run: |
+          kubectl apply -f k8s/postgres.yaml
+          kubectl rollout status statefulset/postgres -n devops-assessment --timeout=120s
+
+      - name: Deploy backend with freshly built image
+        run: |
+          kubectl apply -f k8s/backend-deployment.yaml
+          kubectl apply -f k8s/backend-service.yaml
+          kubectl set image deployment/backend \
+            backend=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -n devops-assessment
+          kubectl patch deployment backend -n devops-assessment \
+            -p '{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"ghcr-pull-secret"}]}}}}'
+          kubectl rollout status deployment/backend -n devops-assessment --timeout=120s
+
+      # ---------- SMOKE TEST (proves the deploy actually works, not just "applied") ----------
+      - name: Smoke test - health and readiness
+        run: |
+          kubectl run smoke-test --rm -i --restart=Never --image=curlimages/curl -n devops-assessment -- \
+            sh -c "curl -sf http://backend/health && echo OK-HEALTH && curl -sf http://backend/ready && echo OK-READY"
+
+      - name: Show final resource state (for debugging / video evidence)
+        if: always()
+        run: |
+          kubectl get pods -n devops-assessment -o wide
+          kubectl get deployment backend -n devops-assessment
