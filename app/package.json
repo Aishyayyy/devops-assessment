@@ -1,0 +1,13 @@
+{
+  "name": "devops-assessment-backend",
+  "version": "1.0.0",
+  "description": "Minimal backend for K8s + CI/CD assessment",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.12.0"
+  }
+}
