@@ -1,13 +1,11 @@
 const express = require('express');
 const { Pool } = require('pg');
-
+//adding a comment for runthrough
 const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// pg library auto-reads PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE
-// but we set them explicitly so misconfiguration is easy to reason about.
 const pool = new Pool({
   host: process.env.DB_HOST,
   port: process.env.DB_PORT || 5432,
